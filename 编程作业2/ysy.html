@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Level 3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+
+    <style>
+        #node-link {
+            float: left;
+        }
+        #matrix {
+            float: left;
+        }
+    </style>
+</head>
+<body>
+    <div id="node-link">
+        <p>Can zoom and pan</p>
+    </div>
+    <div id="matrix"></div>
+    <button id="sort">Sort by full name</button>
+    <a href="../index.html">Back</a>
+
+    <script>
+
+        //Sets the size of the network graph
+        var NLMargin = { top: 15, right: 15, bottom: 15, left: 15 },
+            NLWidth = 600 - NLMargin.left - NLMargin.right,
+            NLHeight = 600 - NLMargin.top - NLMargin.bottom;
+
+        
+        var NLSvg = d3.select("#node-link").append("svg")
+            .attr("width", NLWidth + NLMargin.left + NLMargin.right)
+            .attr("height", NLHeight + NLMargin.top + NLMargin.bottom);
+
+        var g = NLSvg.append("g")
+            .attr("transform", "translate(" + NLMargin.left + "," + NLMargin.top + ")");
+
+        var zoom = d3.zoom()
+            .on("zoom", function() { g.attr("transform", d3.event.transform); });
+        
+        NLSvg.call(zoom);
+
+        var simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(function(d) { return d.id; }).strength(function(link) {
+                return 1 / link.publications.length / 10;
+            }))
+            .force("charge", d3.forceManyBody())
+            .force("center", d3.forceCenter(NLWidth / 2, NLHeight / 2))
+            .force('collision', d3.forceCollide().radius(function(d) {
+                return d.neigh.length + 5;
+            }));
+        
+        //Set the size of the heat map
+        var m_Margin = { top: 100, right: 100, bottom: 10, left: 100 },
+            m_Width = 700 - m_Margin.left - m_Margin.right,
+            m_Height = 700 - m_Margin.top - m_Margin.bottom;
+        var legendSize = { height: 150, width: 20};
+        var m_Svg = d3.select("#matrix").append("svg")
+            .attr("width", m_Width + m_Margin.left + m_Margin.right)
+            .attr("height", m_Height + m_Margin.top + m_Margin.bottom);
+        
+        var m_G = m_Svg.append("g")
+            .attr("transform", "translate(" + m_Margin.left + "," + m_Margin.top + ")");
+
+        var color = d3.scaleSequential()
+                    .interpolator(d3.interpolateInferno)
+                    .domain([0,20])
+                    
+        var nameScale = d3.scaleBand();
+        var idScale = d3.scaleBand();
+        var colorScale = d3.scaleLinear().domain([0,1]).range([0,20]);
+
+        // Create legeng
+        var defs = m_Svg.append("defs");
+        defs.append("linearGradient")
+            // Vertical gradient
+            .attr("x1", "0%")
+            .attr("y1", "0%")
+            .attr("x2", "0%")
+            .attr("y2", "100%")
+            .attr("id", "linear-gradient")
+            .selectAll("stop")
+            .data(color.ticks().reverse().map((t, i, n) => ({ offset: i/n.length, color: color(t) })))
+            .enter().append("stop")
+            .attr("offset", d => d.offset)
+            .attr("stop-color", d => d.color);
+        var legend = m_G.append('g')
+            .attr("transform", "translate("+(m_Width + 10 + legendSize.width)+",0)")
+        legend.append("rect")
+            .attr("width", legendSize.width)
+            .attr("height", legendSize.height)
+            .style("fill", "url(#linear-gradient)");
+        var colorAxis = legend.append('g').attr("transform", "translate(" + legendSize.width + ",0)");
+
+        d3.json("HKUST_coauthor_graph.json").then(function(raw_data) {
+            // get data from json
+            console.log(raw_data)
+
+            // extract the collaboration subgraph consisting of all the professors from CSE
+            var CSE_data = raw_data.nodes.filter(e => e.dept === "CSE").map(e => e.id);
+            var data = {
+                nodes: raw_data.nodes.filter(e => e.dept === "CSE"),
+                edges: raw_data.edges.filter(e => CSE_data.indexOf(e.source) >= 0 && CSE_data.indexOf(e.target) >= 0)
+            }
+
+            var anonym = 0
+            data.nodes.map(e => {
+                if (!e.fullname) {
+                    e.fullname = "Anonym" + anonym;
+                    anonym++;
+                }
+                e.neigh = data.edges.filter(f => f.source === e.id || f.target === e.id).map(f => {
+                    var temp = {};
+                    if (f.target === e.id) {
+                        temp.id = f.source;
+                    }
+                    else {
+                        temp.id = f.target;
+                    }
+                    temp.publications = f.publications;
+                    return temp;
+                });
+            })
+            console.log(data)
+            //get the degree of each vertex
+            var edge_num = {}
+            for (i = 0; i < data.nodes.length; i++) {
+                    edge_num[data.nodes[i].id] =1
+                }
+
+            for (i = 0; i < data.edges.length; i++) {
+                    edge_num[data.edges[i].source] = edge_num[data.edges[i].source] + 1
+                    edge_num[data.edges[i].target] = edge_num[data.edges[i].target] + 1
+                }
+            var myColor = d3.scaleSequential()
+                        .interpolator(d3.interpolateInferno)
+                        .domain([0,20])
+
+            console.log(edge_num)
+            var link = g.append("g")
+                .attr("class", "links")
+                .selectAll("line")
+                .data(data.edges)
+                .enter().append("line")
+                .attr("stroke", "grey")
+                .attr("stroke-width", 1);
+
+            var node = g.append("g")
+                .attr("class", "nodes")
+                .selectAll("g")
+                .data(data.nodes)
+                .enter().append("g")
+                
+            var circles = node.append("circle")
+                .attr("r", function(d) { return d.neigh.length + 3; })
+                .attr("fill", function(d) {
+                    node_id = d.id
+                    r = edge_num[node_id]
+                    return myColor(r)
+                } )
+                .attr("stroke", "white")
+                .attr("stroke-width", 1)
+                .on("mouseover", NLHighlight())
+                .on("mouseout", NLReset);
+
+           
+            
+            node.append("title")
+                .text(function(d) { return d.fullname; });
+            
+            //Map your social network
+            simulation
+                .nodes(data.nodes)
+                .on("tick", ticked);
+
+            simulation.force("link")
+                .links(data.edges);
+
+            function ticked() {
+                link
+                    .attr("x1", function(d) { return d.source.x; })
+                    .attr("y1", function(d) { return d.source.y; })
+                    .attr("x2", function(d) { return d.target.x; })
+                    .attr("y2", function(d) { return d.target.y; });
+
+                node
+                    .attr("transform", function(d) {
+                        return "translate(" + d.x + "," + d.y + ")";
+                    })
+            }
+
+            //Draw a matrix heat map
+            var num_range = d3.extent(data.nodes.map(e => e.neigh.length));
+            color.domain(num_range);
+
+            nameScale.domain(data.nodes.map(e => e.fullname)).range([0, m_Width]);
+            idScale.domain(data.nodes.map(e => e.id)).range([0, m_Width]);
+            colorScale.domain(color.domain()).range([legendSize.height, 0]);
+
+            var x_axis = m_G.append("g");
+            x_axis.call(d3.axisTop(nameScale)).selectAll("text").style("text-anchor", "start").attr("transform", "translate(12,-10) rotate(-90)");
+            var y_axis = m_G.append("g");
+            y_axis.call(d3.axisLeft(nameScale));
+            colorAxis.call(d3.axisRight(colorScale));
+
+            var m_GG = m_G.append("g")
+                .selectAll("g")
+                .data(data.nodes)
+                .enter()
+            //Sets the properties of the small rectangle    
+            var rects = m_GG.selectAll("rect")
+                .data(d => { d.neigh.forEach(e => e.source = d.id); return d.neigh;})
+                .enter()
+                .append("rect")
+                .attr("x", d => idScale(d.id))
+                .attr("y", d => idScale(d.source))
+                .attr("width", nameScale.bandwidth())
+                .attr("height", nameScale.bandwidth())
+                .attr("fill", d => myColor(d.publications.length))
+                .on("mouseover", m_Highlight())
+                .on("mouseout", matrixReset);
+            
+            //Sort the matrix
+            var sort_matrix = d3.select("button#sort").on("click", function() {
+                console.log("sort by name")
+                data.nodes.sort(sort_name);
+                // Update axis
+                nameScale.domain(data.nodes.map(e => e.fullname)).range([0, m_Width]);
+                idScale.domain(data.nodes.map(e => e.id)).range([0, m_Width]);
+
+                x_axis.transition().duration(750).delay((d, i) => i * 20).call(d3.axisTop(nameScale)).selectAll("text").style("text-anchor", "start").attr("transform", "translate(12,-10) rotate(-90)");
+                y_axis.transition().duration(750).delay((d, i) => i * 20).call(d3.axisLeft(nameScale));
+                rects
+                    .order()
+                    .transition()
+                    .duration(750)
+                    .delay((d, i) => i * 20)
+                    .attr("x", d => idScale(d.id))
+                    .attr("y", d => idScale(d.source));
+            });
+
+            function sort_name(a, b) {
+                return d3.ascending(a.fullname, b.fullname);
+            }
+            //Linkage: when hovering the mouse on node in the node-link diagram, the corresponding column and row of the matrix view should be highlighted
+            function NLHighlight() {
+                return function(d) {
+                    rects.style("opacity", e => e.id === d.id || e.source === d.id ? 1 : 0);
+                    node.style("stroke-opacity", function(e) {
+                        if (e.id === d.id) {
+                            return 1;
+                        }
+                        return d.neigh.find(function(f) { return f.id === e.id }) === undefined ? 0.2 : 1;
+                    });
+                    node.style("fill-opacity", function(e) {
+                        if (e.id === d.id) {
+                            return 1;
+                        }
+                        return d.neigh.find(function(f) { return f.id === e.id }) === undefined ? 0.2 : 1;
+                    });
+                    link.style("stroke-opacity", function(e) {
+                        return e.source.id === d.id || e.target.id === d.id ? 1 : 0.2;
+                    });
+                }
+            }
+
+            function NLReset() {
+                node.style("stroke-opacity", 1);
+                node.style("fill-opacity", 1);
+                link.style("stroke-opacity", 1);
+                rects.style("opacity", 1);
+            }
+            //; when hovering on a cell in the matrix view, the corresponding nodes and edges should be highlighted as well.
+            function m_Highlight() {
+                return function(d) {
+                    rects.style("opacity", e => e.id === d.id && e.source === d.source ? 1 : 0);
+                    node.style("stroke-opacity", function(e) {
+                        if (e.id === d.id || e.id === d.source) {
+                            return 1;
+                        }
+                        return 0.2;
+                    });
+                    node.style("fill-opacity", function(e) {
+                        if (e.id === d.id || e.id === d.source) {
+                            return 1;
+                        }
+                        return 0.2;
+                    });
+                    link.style("stroke-opacity", function(e) {
+                        return e.source.id === d.id && e.target.id === d.source || e.source.id === d.source && e.target.id === d.id ? 1 : 0.2;
+                    });
+                    link.style("stroke-width", function(e) {
+                        return e.source.id === d.id && e.target.id === d.source || e.source.id === d.source && e.target.id === d.id ? 1 + e.publications.length : 1;
+                    });
+                }
+            }
+
+            function matrixReset() {
+                node.style("stroke-opacity", 1);
+                node.style("fill-opacity", 1);
+                link.style("stroke-width", 1)
+                link.style("stroke-opacity", 1);
+                rects.style("opacity", 1);
+            }    
+        })
+    </script>
+</body>
+</html>
